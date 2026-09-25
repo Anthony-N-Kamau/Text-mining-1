@@ -1,0 +1,362 @@
+---
+title: "Text Mining 1"
+author: "Anthony Kamau"
+toc: yes
+output: pdf_document
+---
+
+---
+
+
+```{r, message=FALSE}
+# install.packages(c("tidytext","tm", "wordcloud", "SnowballC"))
+
+library(tidyverse) 
+library(tidytext)  
+library(tm)        
+library(wordcloud) 
+library(SnowballC) 
+```
+
+# Introduction
+We use the `computer.txt` dataset. It's a data set with reviews of computers. 
+This data set is annotated using aspect-based sentiment analysis. Aspect-based 
+sentiment analysis is a text analysis technique that categorizes data by specific
+aspects and identifies the sentiment attributed to each one. 
+
+## Load data
+```{r}
+computer_531 <- read_delim(
+  file = "computer.txt", 
+  delim = "\n", 
+  col_names = "review",
+  show_col_types = FALSE
+)
+```
+```{r}
+head(computer_531)
+```
+
+# Preparation and Pre-processing
+
+## Visualization 
+
+### Word cloud
+We shall visualize using a word cloud.
+```{r, warning=FALSE}
+wordcloud(
+  words = computer_531$review,
+  min.freq = 5,
+  max.words = 50,
+  random.order = FALSE,
+  colors = brewer.pal(8, "Dark2"))
+
+# The dominant terms are monitor, the, acer, screen, price, computer
+# From the word cloud we can see that This dataset is dominated by monitor/screen
+# reviews (likely Acer laptops/netbooks),
+# However, very common function words such as `the`, `and` and `this` are still
+# cluttering the picture because stop words haven't been removed yet.
+```
+### Frequency plot
+Another way to visualize the term frequencies is using a barplot. For this we need
+to convert the data to a tidy format (where each word is a different row) and 
+count the number of occurrences of each word.
+
+```{r}
+# tokenize texts
+comp_words <- computer_531 |> 
+  unnest_tokens(word, review)
+
+# check the resulting tokens
+head(comp_words)
+
+# unnest_tokens function from tidytext package breaks the text into individual 
+# tokens (a process called tokenization)
+```
+
+
+```{r}
+comp_words |> 
+  # count the frequency of each word
+  count(word) |> 
+  # arrange the words by its frequency in descending order
+  arrange(desc(n)) |> 
+  # select the top 30 most frequent words
+  head(30) |> 
+  # make a bar plot (reorder words by their frequencies)
+  ggplot(aes(x = n, y = reorder(word, n))) + 
+  geom_col(fill="gray") +
+  labs(x = "frequency", y="words") + 
+  theme_minimal()
+
+# This selects the most frequent 30 tokens and plot a bar chat
+# We see that many of the top words are `stop words`. 
+# These stop words need to be removed
+```
+
+### Remove stop words
+```{r}
+comp_words_no_stop <- 
+  comp_words |> 
+  # remove stop words
+  anti_join(stop_words)
+
+# stop_words is a dataset with stop words. By using anti_join, you keep only the
+# words in the first dataset that are not in the stop_words dataset.
+```
+
+```{r}
+comp_words_no_stop |> 
+  # count the frequency of each word
+  count(word) |> 
+  # arrange the words by its frequency in descending order
+  arrange(desc(n)) |> 
+  # select the top 30 most frequent words
+  head(30) |> 
+  # make a bar plot (reorder words by their frequencies)
+  ggplot(aes(x = n, y = reorder(word, n))) + 
+  geom_col(fill="gray") +
+  labs(x = "frequency", y="words") + 
+  theme_minimal()
+```
+
+### Adjust stopwords list. 
+```{r}
+df_stopwords <- 
+  stop_words |> 
+  filter(!word %in% c("order", "ordered", "ordering", "orders")) |> 
+  rbind(tibble(word = c("buy", "online"), lexicon = c("Me", "Me")))
+
+# remove stop words
+comp_words_no_stop_modified <- 
+  comp_words |>
+  anti_join(df_stopwords)
+```
+
+```{r}
+comp_words_no_stop_modified |> 
+  # count the frequency of each word
+  count(word) |> 
+  # arrange the words by its frequency in descending order
+  arrange(desc(n)) |> 
+  # select the top 30 most frequent words
+  head(30) |> 
+  # make a bar plot (reorder words by their frequencies)
+  ggplot(aes(x = n, y = reorder(word, n))) + 
+  geom_col(fill="gray") +
+  labs(x = "frequency", y="words") + 
+  theme_minimal()
+
+# The resulting barplot looks almost identical to the previous one, just missing
+# "buy," confirming the small custom lexicon barely changed the top-30. Most of
+# the signal was already captured
+```
+### Stemming
+When we deal with text, often documents contain different versions of one base word,
+called a stem. `SnowballC` is a package based on the famous Porter’s stemming 
+algorithm that collapses words into their stem. We shall use the `getStemLanguages` 
+function to find out how many languages the package supports.
+
+```{r}
+getStemLanguages()
+
+# supports 26 languages 
+```
+
+We apply stemming and show the 30 most frequent stemmed words
+```{r}
+comp_words_stemming <- 
+  comp_words_no_stop_modified |> 
+  mutate(stem = wordStem(word))
+
+comp_words_stemming |> 
+  # count the frequency of each word
+  count(stem) |> 
+  # arrange the words by its frequency in descending order
+  arrange(desc(n)) |> 
+  # select the top 30 most frequent words
+  head(30) |> 
+  # make a bar plot (reorder words by their frequencies)
+  ggplot(aes(x = n, y = reorder(stem, n))) + 
+  geom_col(fill="gray") +
+  labs(x = "frequency", y="words") + 
+  theme_minimal()
+
+# The resulting top terms (monitor, price, acer, screen... etc) are largely the
+# same as before stemming here, since the top words were already in single-form
+```
+
+# Regular Expressions
+We use regular expressions (regex) to find the reviews in computer_531, which contain
+words “Monitor” or “monitor”, “memory” or “Memory”, and “Delivery” or “delivery” and
+we see how many reviews contain each pair of words.
+```{r}
+# reviews containing "Monitor" or "monitor"
+reviews_mon <- computer_531 |> 
+  filter(str_detect(review, "[Mm]onitor"))
+
+# reviews containing "memory" or "Memory"
+reviews_mem <- computer_531 |> 
+  filter(str_detect(review, "[Mm]emory"))
+
+# reviews containing "Delivery" or "delivery"
+reviews_del <- computer_531 |> 
+  filter(str_detect(review, "[Dd]elivery"))
+
+# compare the occurrence of each pair of words
+kwords    <- c("Monitor", "Memory", "Delivery")
+nr_kwords <- c(nrow(reviews_mon), 
+               nrow(reviews_mem), 
+               nrow(reviews_del))
+
+tibble(kwords, nr_kwords)
+
+# We use `str_detect` function from `stringr` package to find the presence of 
+# patterns of your interest and the `filter function` to only retain the ones
+# that contain the patterns.
+# Out of the 531 reviews, 105 mention `Monitor`, 5 mention `Memory` and 
+# 3 mention `Delivery`
+# This is inline with the word cloud and frequency plots which suggested that 
+# monitors are the dominant topic, while memory and delivery are barely discussed.
+```
+
+```{r}
+## Detect
+head(str_detect(computer_531$review, 
+                "(\\w+) ([Mm]onitor)"))
+
+# Returns TRUE/FALSE per review, telling us whether that review contains a word
+# immediately followed by "monitor" anywhere in it. 
+# It is useful for filtering or counting, not for seeing what matched.
+```
+
+```{r}
+## Extract
+head(str_extract(computer_531$review, 
+                 "(\\w+) ([Mm]onitor)"))
+
+# Pulls out only the substring that matched the whole pattern (both capture groups combined),
+# e.g. "this monitor"
+# Rows with no match return NA. 
+# Only the first match per string is returned by default
+# str_extract_all would give all matches
+```
+
+```{r}
+## Subset
+head(str_subset(computer_531$review, 
+                "(\\w+) ([Mm]onitor)"))
+
+# Instead of returning TRUE/FALSE or just the matched fragment, this returns the 
+# entire original review text for every review that matched.
+# essentially review[str_detect(review, pattern)]. 
+# It's a shortcut for filtering a character vector down to just the matching elements.
+```
+```{r}
+## Match (Useful with capture groups)
+head(str_match(computer_531$review, 
+               "(\\w+) ([Mm]onitor)"))
+
+# This is the most detailed of the four. Column 1 is the full match (same as str_extract),
+# and columns 2 and 3 are the two capture groups broken out separately. So we get the
+# preceding word and "monitor" as two separate values. 
+# This is handy when we specifically want to isolate a captured sub-piece 
+# (e.g. just the word before "monitor") rather than the whole match.
+```
+
+```{r}
+# use str_extract_all
+str_extract_all(computer_531$review[1:10], 
+                '\\b[A-Z]+\\b', 
+                simplify = TRUE)
+
+# all matches, returned as a matrix
+# Unlike plain str_extract (first match only), str_extract_all returns 
+# every match per string. 
+# With simplify = TRUE, instead of returning a list (where each element could have
+# a different length), it pads all results into a rectangular matrix: each row is
+# one of the first 10 reviews, each column is one match position, and empty
+# positions (where a review had fewer all-caps words than the row with the most)
+# are filled with "". So a row like "I" "" "" means that review had only one 
+# all-caps word ("I"), while "A" "I" "" means it had two.
+```
+
+```{r}
+str_extract(computer_531[[1]][1:20], 
+            "^.*##")
+
+# extracts the characters at the beginning of each line until ## for only 
+# the first 20 reviews
+```
+
+```{r}
+computer_531 <- computer_531 |> 
+  mutate(cleaned_review = str_extract(review,"##.*$"),
+         aspect_sentiment = str_extract(review,"^.*##"))
+
+# check the newly added columns
+head(computer_531[-1])
+
+# new column added to the computer_531 data frame with the name cleaned_review,
+# which contains only the review text. And another column added with the 
+# name aspect_sentiment, which contains the asepcts and sentiment words.
+```
+
+# Parsing aspect tags
+For an even cleaner version you can use regex's lookbehind and lookahead features
+to drop the `##` parts
+```{r}
+computer_531 <- computer_531 |> 
+  mutate(cleaned_review = str_extract(review,"(?<=##).*$"),
+         aspect_sentiment = str_extract(review,"^.*(?=##)"))
+
+# check the newly added columns
+head(computer_531[-1])
+
+# No leftover `##` characters cluttering either column
+```
+
+# Sentiment Scoring
+```{r}
+# define sum_list function which adds the scores
+sum_list <- function(list_values) {
+  sum(as.numeric(list_values))
+}
+
+computer_531 <- computer_531 |>
+  # sentiment_score: extract the scores and sum them using the sum_list function
+  mutate(sentiment_score = map_dbl(str_extract_all(aspect_sentiment, "[-|\\+]\\d+"), sum_list),
+                               # assign negative when score < 0
+         sentiment = case_when(sentiment_score < 0 ~ "negative",
+                               # assign negative when score > 0
+                               sentiment_score > 0 ~ "positive",
+                               # assign neutral otherwise
+                               TRUE ~ "neutral"))
+
+head(computer_531)
+
+#  This create a new column sentiment with the values positive, negative and neutral. 
+# The code assigns neutral in case when there is no aspect in the corresponding 
+# column or the sum of scores is equal to zero, and it assigns negative or positive
+# when the sum score is lower or higher) than zero repectively.
+```
+
+```{r}
+computer_531 |> 
+  arrange(sentiment_score) |>
+  tail(1) |>
+  pull(cleaned_review) |>
+  strwrap() |>
+  writeLines()
+
+# arrange(sentiment_score) sorts the whole table by score, ascending (most negative 
+# first, most positive last)
+
+#tail(1) grabs the last row — i.e., the single review with the highest sentiment score.
+
+# pull(cleaned_review) extracts just the cleaned_review text column from that 
+#row (rather than the whole row/data frame).
+
+# The result is the actual text of the most positive review in the dataset
+```
+
